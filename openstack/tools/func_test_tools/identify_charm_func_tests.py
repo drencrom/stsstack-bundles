@@ -22,14 +22,21 @@ def extract_targets(bundle_list):
     extracted = []
     for item in bundle_list or []:
         if isinstance(item, dict):
-            extracted.append(list(item.values())[0])
+            values = list(item.values())
+            if isinstance(values, list):
+                # these are overlays so we use the key name
+                bundle = list(item.keys())[0]
+                extracted.append(bundle)
+            else:
+                # its a bundle name
+                extracted.append(values[0])
         else:
             extracted.append(item)
 
     return extracted
 
 
-def get_aliased_targets():
+def get_aliased_targets(bundles):
     """
     Extract aliased targets. A charm can define aliased targets which is where
     Zaza tests are run and use configuration steps from an alias section rather
@@ -38,10 +45,13 @@ def get_aliased_targets():
     job definition in osci.yaml where the target name has a <alias>: prefix.
 
     We extract any aliased targets here and return as a list.
+
+    @param bundles: list of extracted bundles
     """
     targets = []
     osci = OSCIConfig()
-    for jobname in osci.project_check_jobs:
+    jobs = list(osci.project_check_jobs) + bundles
+    for jobname in jobs:
         for job in osci.jobs:
             if job['name'] != jobname:
                 continue
@@ -49,12 +59,17 @@ def get_aliased_targets():
             if 'tox_extra_args' not in job['vars']:
                 continue
 
-            ret = re.search(r"-- (\S+:\S+)",
+            ret = re.search(r"-- (.+)",
                             str(job['vars']['tox_extra_args']))
             if ret:
-                targets.append(ret.group(1))
+                target = ret.group(1)
+                # NOTE: will need to reverse this when we use the target name
+                target = target.replace(' ', '+')
+                targets.append(target)
+                if jobname in bundles:
+                    bundles.remove(jobname)
 
-    return targets
+    return targets + bundles
 
 
 def get_tests_bundles():
@@ -76,6 +91,6 @@ def get_tests_bundles():
 
 
 if __name__ == "__main__":
-    aliased_bundles = get_aliased_targets()
-    tests_bundles = get_tests_bundles()
-    print(' '.join(sorted(set(tests_bundles + aliased_bundles))))
+    bundles = get_tests_bundles()
+    bundles = get_aliased_targets(bundles)
+    print(' '.join(sorted(bundles)))
